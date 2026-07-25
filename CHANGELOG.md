@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/YentlFrickx/polar-fit-sync/compare/v0.5.0...v0.5.1) (2026-07-25)
+
+
+### Documentation
+
+* explain relationship with dreeve ([0073b54](https://github.com/YentlFrickx/polar-fit-sync/commit/0073b544ea6823406d9fa5ec54eea52eafa776f6))
+* explain relationship with dreeve ([85dab7b](https://github.com/YentlFrickx/polar-fit-sync/commit/85dab7bf36062591a010a5aaea0da7925954da0d))
+
 ## [0.5.0](https://github.com/YentlFrickx/polar-fit-sync/compare/v0.4.0...v0.5.0) (2026-07-23)
 
 
