@@ -4,6 +4,8 @@ A self-hosted tool that automatically downloads `.fit` exercise files from your 
 
 > Only `.fit` files are downloaded. One Polar account per instance. No TCX, GPX, or upload-to-Strava functionality.
 
+> [dreeve](https://github.com/dreeveapp/dreeve) has no native Polar support — only a Strava API mode or a file-watch import mode. Point `PFS_OUTPUT_DIR` at the same folder Dreeve mounts as its `watch/` volume and Polar FIT Sync becomes the missing Polar connector, feeding Dreeve's file-watch import for fully automatic Polar-to-dashboard sync.
+
 ---
 
 ## Prerequisites
@@ -82,7 +84,7 @@ All configuration is done through environment variables. Copy `.env.example` to 
 | `PFS_SYNC_ON_STARTUP` | No | `true` | Run one sync immediately when the service starts in `poll` or `both` mode, instead of waiting for the first `PFS_SYNC_INTERVAL_MINUTES` interval to elapse. Has no effect in webhook-only mode (there is no interval job to accelerate). Set `false` to restore the old behaviour of waiting a full interval before the first sync — e.g. to avoid a sync burst on every pod restart in a crash-looping deployment. |
 | `PFS_WEBHOOK_SECRET` | Required if using `webhook` or `both` mode | — | HMAC-SHA256 secret for verifying Polar webhook signatures |
 | `PFS_BASE_URL` | No | — | Public base URL of this service (e.g. `https://your-domain.example.com`); used to display the webhook registration URL on the status page |
-| `PFS_OUTPUT_DIR` | No | `/data/fit` | Directory where `.fit` files are written. Fully independent of `PFS_DB_PATH` — the two may point at entirely different volumes/mounts; each directory is created automatically if missing. |
+| `PFS_OUTPUT_DIR` | No | `/data/fit` | Directory where `.fit` files are written. Fully independent of `PFS_DB_PATH` — the two may point at entirely different volumes/mounts; each directory is created automatically if missing. Point this at [dreeve](https://github.com/dreeveapp/dreeve)'s `watch/` volume for automatic import. |
 | `PFS_DB_PATH` | No | `/data/state.db` | Path to the SQLite state database. Fully independent of `PFS_OUTPUT_DIR` (see above); its parent directory is created automatically if missing, even when it shares no common ancestor with `PFS_OUTPUT_DIR`. |
 | `PFS_PORT` | No | `8080` | TCP port the web server binds inside the container. When changed, update the docker-compose port mapping (or set `PFS_PORT` in your environment so the compose `${PFS_PORT:-8080}` interpolation follows) so the host mapping stays consistent. |
 | `PFS_MEMBER_ID` | No | `polar-fit-sync` | Stable identifier used when registering your Polar account |
