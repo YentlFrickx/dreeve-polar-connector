@@ -42,5 +42,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/yentlfrickx/polar-fit-sync:${{ needs.release-please.outputs.tag_name }}
-            ghcr.io/yentlfrickx/polar-fit-sync:latest
+            ghcr.io/yentlfrickx/dreeve-polar-connector:${{ needs.release-please.outputs.tag_name }}
+            ghcr.io/yentlfrickx/dreeve-polar-connector:latest

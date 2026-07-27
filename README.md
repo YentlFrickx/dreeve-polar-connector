@@ -1,10 +1,12 @@
-# Polar FIT Sync
+# Dreeve Polar Connector
 
 A self-hosted tool that automatically downloads `.fit` exercise files from your Polar Flow account to a local volume. It handles OAuth linking through a small web UI, then incrementally fetches only new files on a schedule — or instantly when Polar pushes a webhook notification. Runs as a single container, locally with Docker Compose or in Kubernetes.
 
 > Only `.fit` files are downloaded. One Polar account per instance. No TCX, GPX, or upload-to-Strava functionality.
 
 > [dreeve](https://github.com/dreeveapp/dreeve) has no native Polar support — only a Strava API mode or a file-watch import mode. Point `PFS_OUTPUT_DIR` at the same folder Dreeve mounts as its `watch/` volume and Polar FIT Sync becomes the missing Polar connector, feeding Dreeve's file-watch import for fully automatic Polar-to-dashboard sync.
+
+> This project is not affiliated with or endorsed by the official [dreeve](https://github.com/dreeveapp/dreeve) project — it is an independent, related repository maintained separately by Yentl Frickx.
 
 ---
 
@@ -57,7 +59,7 @@ Open http://localhost:8080 in your browser, click **Connect Polar**, and complet
 The scheduler runs every 60 minutes by default. To sync immediately:
 
 ```bash
-docker compose exec polar-fit-sync python -m polar_fit_sync sync
+docker compose exec dreeve-polar-connector python -m polar_fit_sync sync
 ```
 
 ### 6. Find your files
@@ -141,7 +143,7 @@ https://your-domain.example.com/oauth/callback
 ### 2. Create the Kubernetes secret
 
 ```bash
-kubectl create secret generic polar-fit-sync-secrets \
+kubectl create secret generic dreeve-polar-connector-secrets \
   --from-literal=POLAR_CLIENT_ID=your_client_id \
   --from-literal=POLAR_CLIENT_SECRET=your_client_secret \
   --from-literal=POLAR_REDIRECT_URI=https://your-domain.example.com/oauth/callback
@@ -150,7 +152,7 @@ kubectl create secret generic polar-fit-sync-secrets \
 If you are using webhook mode, also include the webhook secret:
 
 ```bash
-kubectl create secret generic polar-fit-sync-secrets \
+kubectl create secret generic dreeve-polar-connector-secrets \
   --from-literal=POLAR_CLIENT_ID=your_client_id \
   --from-literal=POLAR_CLIENT_SECRET=your_client_secret \
   --from-literal=POLAR_REDIRECT_URI=https://your-domain.example.com/oauth/callback \
@@ -168,7 +170,7 @@ kubectl apply -f k8s/pvc.yaml -f k8s/deployment.yaml -f k8s/service.yaml
 The web UI is not exposed publicly by default. Use a port-forward for the one-time OAuth link:
 
 ```bash
-kubectl port-forward svc/polar-fit-sync 8080:8080
+kubectl port-forward svc/dreeve-polar-connector 8080:8080
 ```
 
 Open http://localhost:8080 and click **Connect Polar** to complete the OAuth flow. You only need to do this once — the token is persisted in the database on the PVC.
@@ -188,7 +190,7 @@ To enable webhook mode in Kubernetes:
 ### Manual sync (Kubernetes)
 
 ```bash
-kubectl exec -it deploy/polar-fit-sync -- python -m polar_fit_sync sync
+kubectl exec -it deploy/dreeve-polar-connector -- python -m polar_fit_sync sync
 ```
 
 ---
