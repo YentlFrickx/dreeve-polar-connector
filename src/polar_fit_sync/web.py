@@ -31,7 +31,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from polar_fit_sync.config import Settings
-from polar_fit_sync.db import Db
+from polar_fit_sync.db import Db, LIST_SORT_COLUMNS
 from polar_fit_sync.polar import PolarClient
 from polar_fit_sync.scheduler import build_scheduler
 from polar_fit_sync.sync import run_sync
@@ -164,6 +164,72 @@ def create_app(settings: Settings) -> FastAPI:
                 "sync_mode": settings.pfs_sync_mode,
                 "show_webhook_url": show_webhook_url,
                 "webhook_url": webhook_url,
+            },
+        )
+
+    # -------------------------------------------------------------------------
+    # Activities list (paginated, sortable, sport-filterable)
+    # -------------------------------------------------------------------------
+
+    @app.get("/activities", response_class=HTMLResponse)
+    async def activities(
+        request: Request,
+        # page/page_size/sort/dir are deliberately plain str, NOT int/typed
+        # query params. Typing them as int would let FastAPI/Pydantic reject
+        # malformed input with a 422 before our normalization below ever
+        # runs — but malformed or malicious query params here must always
+        # render HTTP 200 with a graceful fallback, never an error response.
+        page: str = "1",
+        page_size: str = "25",
+        sport: str = "",
+        sort: str = "start_time",
+        dir: str = "desc",
+    ):
+        # Normalize every input against its allow-list BEFORE anything is
+        # rendered. The invalid-dir-falls-back-to-default test asserts the
+        # response for a bogus dir is byte-identical to the canonical
+        # default response, so no unnormalized value may leak into the
+        # template context or the links it renders.
+        sort_norm = sort if sort in LIST_SORT_COLUMNS else "start_time"
+        dir_norm = dir.lower() if dir.lower() in ("asc", "desc") else "desc"
+        sport_norm = None if sport in ("", "all") else sport
+
+        try:
+            size = int(page_size)
+        except (TypeError, ValueError):
+            size = 25
+        size = max(1, min(size, 100))
+
+        total = db.count_downloaded(sport=sport_norm)
+        total_pages = max(1, (total + size - 1) // size)
+
+        try:
+            current = int(page)
+        except (TypeError, ValueError):
+            current = 1
+        current = max(1, min(current, total_pages))
+        offset = (current - 1) * size
+
+        rows = db.list_downloaded(
+            sport=sport_norm, sort=sort_norm, direction=dir_norm,
+            limit=size, offset=offset,
+        )
+
+        return templates.TemplateResponse(
+            request,
+            "activities.html",
+            {
+                "activities": rows,
+                "sports": db.distinct_sports(),
+                "current_sport": sport_norm or "",
+                "sort": sort_norm,
+                "dir": dir_norm,
+                "page": current,
+                "page_size": size,
+                "total": total,
+                "total_pages": total_pages,
+                "has_prev": current > 1,
+                "has_next": current < total_pages,
             },
         )
 

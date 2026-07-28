@@ -92,6 +92,15 @@ def _make_signature(secret: str, body: bytes) -> str:
     return hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
 
+def _seed_activities(tmp_path, rows):
+    """Seed downloaded_exercise rows directly, mirroring the test_db.py pattern."""
+    db = Db(str(tmp_path / "test.db"))
+    db.init_schema()
+    for exercise_id, sport, start_time in rows:
+        db.record_downloaded(exercise_id, f"/data/{exercise_id}.fit", sport, start_time)
+    return db
+
+
 # ---------------------------------------------------------------------------
 # Health probe
 # ---------------------------------------------------------------------------
@@ -476,3 +485,222 @@ def test_startup_sync_does_not_block_healthz(tmp_path):
                 f"/healthz took {elapsed:.2f}s — readiness must not wait on "
                 f"the in-flight startup sync (SLOW={SLOW}s)."
             )
+
+
+# ---------------------------------------------------------------------------
+# GET /activities
+# ---------------------------------------------------------------------------
+
+
+def test_activities_empty_state_shows_friendly_message(tmp_path):
+    settings = _make_settings(tmp_path, sync_mode="poll")
+    db = Db(str(tmp_path / "test.db"))
+    db.init_schema()
+    app = create_app(settings)
+    client = TestClient(app)
+    resp = client.get("/activities")
+    assert resp.status_code == 200
+    assert "no activities" in resp.text.lower()
+
+
+def test_activities_populated_shows_rows(tmp_path):
+    settings = _make_settings(tmp_path, sync_mode="poll")
+    _seed_activities(
+        tmp_path,
+        [
+            ("e-run-1", "RUNNING", "2026-01-01T00:00:00Z"),
+            ("e-cycle-1", "CYCLING", "2026-01-02T00:00:00Z"),
+        ],
+    )
+    app = create_app(settings)
+    client = TestClient(app)
+    resp = client.get("/activities")
+    assert resp.status_code == 200
+    assert "e-run-1" in resp.text
+    assert "e-cycle-1" in resp.text
+
+
+def test_activities_pagination_next_present_on_first_page(tmp_path):
+    settings = _make_settings(tmp_path, sync_mode="poll")
+    rows = [
+        (f"e{i:03d}", "RUNNING", f"2026-01-{(i % 28) + 1:02d}T00:00:00Z")
+        for i in range(1, 31)
+    ]
+    _seed_activities(tmp_path, rows)
+    app = create_app(settings)
+    client = TestClient(app)
+    resp = client.get("/activities?page=1")
+    assert resp.status_code == 200
+    assert "page=2" in resp.text
+    assert "page=0" not in resp.text
+
+
+def test_activities_pagination_prev_present_no_next_on_last_page(tmp_path):
+    settings = _make_settings(tmp_path, sync_mode="poll")
+    rows = [
+        (f"e{i:03d}", "RUNNING", f"2026-01-{(i % 28) + 1:02d}T00:00:00Z")
+        for i in range(1, 31)
+    ]
+    _seed_activities(tmp_path, rows)
+    app = create_app(settings)
+    client = TestClient(app)
+    resp = client.get("/activities?page=2")
+    assert resp.status_code == 200
+    assert "page=1" in resp.text
+    assert "page=3" not in resp.text
+
+
+def test_activities_out_of_range_page_clamps_to_last_page(tmp_path):
+    settings = _make_settings(tmp_path, sync_mode="poll")
+    rows = [
+        (f"e{i:03d}", "RUNNING", f"2026-01-{(i % 28) + 1:02d}T00:00:00Z")
+        for i in range(1, 31)
+    ]
+    _seed_activities(tmp_path, rows)
+    app = create_app(settings)
+    client = TestClient(app)
+    resp = client.get("/activities?page=999")
+    assert resp.status_code == 200
+    assert "page=3" not in resp.text
+
+
+def test_activities_invalid_page_size_falls_back_to_default(tmp_path):
+    settings = _make_settings(tmp_path, sync_mode="poll")
+    rows = [
+        (f"e{i:03d}", "RUNNING", f"2026-01-{(i % 28) + 1:02d}T00:00:00Z")
+        for i in range(1, 31)
+    ]
+    _seed_activities(tmp_path, rows)
+    app = create_app(settings)
+    client = TestClient(app)
+    resp = client.get("/activities?page_size=not-a-number")
+    assert resp.status_code == 200
+    assert "page=2" in resp.text
+
+
+def test_activities_page_size_clamped_to_max_100(tmp_path):
+    settings = _make_settings(tmp_path, sync_mode="poll")
+    rows = [
+        (f"e{i:03d}", "RUNNING", f"2026-01-{(i % 28) + 1:02d}T00:00:00Z")
+        for i in range(1, 31)
+    ]
+    _seed_activities(tmp_path, rows)
+    app = create_app(settings)
+    client = TestClient(app)
+    resp = client.get("/activities?page_size=1000")
+    assert resp.status_code == 200
+    assert "page=2" not in resp.text
+
+
+def test_activities_sort_param_reflected_in_row_order(tmp_path):
+    settings = _make_settings(tmp_path, sync_mode="poll")
+    _seed_activities(
+        tmp_path,
+        [
+            ("e-walk", "WALKING", "2026-01-01T00:00:00Z"),
+            ("e-cycle", "CYCLING", "2026-01-02T00:00:00Z"),
+            ("e-run", "RUNNING", "2026-01-03T00:00:00Z"),
+        ],
+    )
+    app = create_app(settings)
+    client = TestClient(app)
+    resp = client.get("/activities?sort=sport&dir=asc")
+    assert resp.status_code == 200
+    cycle_pos = resp.text.index("e-cycle")
+    run_pos = resp.text.index("e-run")
+    walk_pos = resp.text.index("e-walk")
+    assert cycle_pos < run_pos < walk_pos
+
+
+def test_activities_sort_injection_is_neutralized(tmp_path):
+    settings = _make_settings(tmp_path, sync_mode="poll")
+    _seed_activities(
+        tmp_path,
+        [
+            ("e1", "RUNNING", "2026-01-01T00:00:00Z"),
+            ("e2", "CYCLING", "2026-01-02T00:00:00Z"),
+            ("e3", "WALKING", "2026-01-03T00:00:00Z"),
+        ],
+    )
+    app = create_app(settings)
+    client = TestClient(app)
+    resp = client.get("/activities?sort=exercise_id);DROP+TABLE--&dir=sideways")
+    assert resp.status_code == 200
+    resp2 = client.get("/activities")
+    assert resp2.status_code == 200
+    db = Db(str(tmp_path / "test.db"))
+    db.init_schema()
+    assert db.count_downloaded() == 3
+
+
+def test_activities_invalid_dir_falls_back_to_default(tmp_path):
+    settings = _make_settings(tmp_path, sync_mode="poll")
+    _seed_activities(
+        tmp_path,
+        [
+            ("e1", "RUNNING", "2026-01-01T00:00:00Z"),
+            ("e2", "CYCLING", "2026-01-02T00:00:00Z"),
+        ],
+    )
+    app = create_app(settings)
+    client = TestClient(app)
+    resp_default = client.get("/activities?sort=start_time&dir=desc")
+    resp_invalid = client.get("/activities?sort=start_time&dir=sideways")
+    assert resp_invalid.status_code == 200
+    assert resp_invalid.text == resp_default.text
+
+
+def test_activities_sport_filter_narrows_results(tmp_path):
+    settings = _make_settings(tmp_path, sync_mode="poll")
+    _seed_activities(
+        tmp_path,
+        [
+            ("e-run-1", "RUNNING", "2026-01-01T00:00:00Z"),
+            ("e-cycle-1", "CYCLING", "2026-01-02T00:00:00Z"),
+        ],
+    )
+    app = create_app(settings)
+    client = TestClient(app)
+    resp = client.get("/activities?sport=RUNNING")
+    assert resp.status_code == 200
+    assert "e-run-1" in resp.text
+    assert "e-cycle-1" not in resp.text
+
+
+def test_activities_sport_filter_dropdown_is_data_driven(tmp_path):
+    settings = _make_settings(tmp_path, sync_mode="poll")
+    _seed_activities(
+        tmp_path,
+        [
+            ("e1", "RUNNING", "2026-01-01T00:00:00Z"),
+            ("e2", "CYCLING", "2026-01-02T00:00:00Z"),
+        ],
+    )
+    app = create_app(settings)
+    client = TestClient(app)
+    resp = client.get("/activities")
+    assert resp.status_code == 200
+    assert "RUNNING" in resp.text
+    assert "CYCLING" in resp.text
+    assert "SWIMMING" not in resp.text
+
+
+def test_activities_unknown_sport_filter_returns_empty(tmp_path):
+    settings = _make_settings(tmp_path, sync_mode="poll")
+    _seed_activities(tmp_path, [("e1", "RUNNING", "2026-01-01T00:00:00Z")])
+    app = create_app(settings)
+    client = TestClient(app)
+    resp = client.get("/activities?sport=SWIMMING")
+    assert resp.status_code == 200
+    assert "no activities" in resp.text.lower()
+    assert "e1" not in resp.text
+
+
+def test_index_links_to_activities_when_token_stored(tmp_path):
+    settings = _make_settings(tmp_path, sync_mode="poll")
+    _store_token(tmp_path)
+    app = create_app(settings)
+    client = TestClient(app)
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert 'href="/activities"' in resp.text
