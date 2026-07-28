@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/YentlFrickx/dreeve-polar-connector/compare/v0.5.1...v0.5.2) (2026-07-28)
+
+
+### Bug Fixes
+
+* add explicit hatchling wheel package path ([d5b6116](https://github.com/YentlFrickx/dreeve-polar-connector/commit/d5b611602b88972546550171ca1d763e80db32ee))
+
 ## [0.5.1](https://github.com/YentlFrickx/polar-fit-sync/compare/v0.5.0...v0.5.1) (2026-07-25)
 
 
