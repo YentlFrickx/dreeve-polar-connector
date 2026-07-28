@@ -32,6 +32,19 @@ from typing import Optional
 # consume_state rejects any state row older than this many seconds.
 OAUTH_STATE_TTL_SECONDS = 600
 
+# Allow-list of columns the /activities list view may sort by. Mapping (not a
+# plain set) so the public "sort" key and the actual SQL column name are free
+# to diverge later without touching call sites — today they're identical.
+# list_downloaded() interpolates only the resolved value on the right-hand
+# side of this dict into SQL, never the raw key a caller passes in.
+LIST_SORT_COLUMNS = {
+    "start_time": "start_time",
+    "sport": "sport",
+    "downloaded_at": "downloaded_at",
+}
+LIST_SORT_DEFAULT = "start_time"
+LIST_DIR_DEFAULT = "desc"
+
 
 @dataclass
 class Token:
@@ -362,13 +375,78 @@ class Db:
     # Aggregate queries used by the web UI
     # -------------------------------------------------------------------------
 
-    def count_downloaded(self) -> int:
-        """Return the total number of downloaded exercise files."""
+    def count_downloaded(self, sport: Optional[str] = None) -> int:
+        """Return the total number of downloaded exercise files.
+
+        sport narrows the count to a single sport — used by the /activities
+        view to compute total_pages against the currently filtered set
+        rather than the whole table.
+        """
+        sql = "SELECT COUNT(*) AS n FROM downloaded_exercise"
+        params: tuple = ()
+        if sport is not None:
+            sql += " WHERE sport = ?"
+            params = (sport,)
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) AS n FROM downloaded_exercise"
-            ).fetchone()
+            row = conn.execute(sql, params).fetchone()
         return row["n"] if row else 0
+
+    def list_downloaded(
+        self,
+        sport: Optional[str] = None,
+        sort: str = LIST_SORT_DEFAULT,
+        direction: str = LIST_DIR_DEFAULT,
+        limit: int = 25,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Return one page of downloaded_exercise rows as plain dicts.
+
+        sort must be a key of LIST_SORT_COLUMNS and direction one of asc/desc;
+        both are validated against fixed allow-lists (never interpolated raw)
+        and a ValueError is raised on anything else — the web layer normalizes
+        user input to valid values before calling, so this raise is a
+        defense-in-depth backstop, not a user-facing error path. exercise_id
+        ASC is always appended as a deterministic tiebreaker so OFFSET-based
+        paging is stable even when many rows share the same sort value.
+        """
+        if sort not in LIST_SORT_COLUMNS:
+            raise ValueError(f"invalid sort column: {sort!r}")
+        direction_norm = direction.lower()
+        if direction_norm not in ("asc", "desc"):
+            raise ValueError(f"invalid sort direction: {direction!r}")
+
+        # col/direction_norm are the only interpolated strings, and both come
+        # strictly from the allow-lists checked above — never raw user input.
+        col = LIST_SORT_COLUMNS[sort]
+        order_sql = f"ORDER BY {col} {direction_norm.upper()}, exercise_id ASC"
+
+        where_sql = ""
+        params: list = []
+        if sport is not None:
+            where_sql = "WHERE sport = ?"
+            params.append(sport)
+        params.extend([limit, offset])
+
+        sql = (
+            f"SELECT exercise_id, file_path, sport, start_time, downloaded_at "
+            f"FROM downloaded_exercise {where_sql} {order_sql} LIMIT ? OFFSET ?"
+        )
+        with self._connect() as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        return [dict(row) for row in rows]
+
+    def distinct_sports(self) -> list[str]:
+        """Distinct non-NULL sport values present in downloaded_exercise, sorted.
+
+        Powers the activities filter dropdown so options always reflect the
+        data actually synced rather than a hardcoded catalogue.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT sport FROM downloaded_exercise "
+                "WHERE sport IS NOT NULL ORDER BY sport"
+            ).fetchall()
+        return [row["sport"] for row in rows]
 
     def last_run(self) -> Optional[dict]:
         """Return the most recent finished sync_run row as a plain dict, or None."""

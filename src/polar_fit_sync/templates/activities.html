@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Synced Activities — Polar FIT Sync</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #333; }
+        h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
+        .card { border: 1px solid #ddd; border-radius: 6px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+        .label { font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 0.05em; }
+        .value { font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; }
+        .btn { display: inline-block; padding: 0.5rem 1.2rem; border-radius: 4px; text-decoration: none; font-weight: 600; cursor: pointer; border: none; font-size: 0.95rem; }
+        .btn-primary { background: #3182ce; color: #fff; }
+        .btn-warning { background: #d69e2e; color: #fff; }
+        .btn-secondary { background: #718096; color: #fff; }
+        .pill { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem; background: #e2e8f0; }
+        pre { background: #f4f4f4; border-radius: 4px; padding: 0.5rem 0.75rem; font-size: 0.85rem; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+        th { color: #666; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
+        th a { color: inherit; text-decoration: none; }
+        .file-path { overflow-wrap: anywhere; }
+        .filter-form { margin-bottom: 1rem; }
+        .pagination { margin-top: 1rem; font-size: 0.9rem; }
+        .pagination a { margin: 0 0.5rem; }
+    </style>
+</head>
+<body>
+<h1>Synced Activities</h1>
+
+<p><a href="/" class="btn btn-secondary">Back to status</a></p>
+
+<form action="/activities" method="get" class="filter-form">
+    <label for="sport-select" class="label">Sport</label>
+    <select id="sport-select" name="sport" onchange="this.form.submit()">
+        <option value="all" {% if not current_sport %}selected{% endif %}>All</option>
+        {% for s in sports %}
+        <option value="{{ s }}" {% if s == current_sport %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+    </select>
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ dir }}">
+    <input type="hidden" name="page_size" value="{{ page_size }}">
+    <noscript><button type="submit" class="btn btn-secondary">Filter</button></noscript>
+</form>
+
+<p>{{ total }} activities</p>
+
+{% if activities %}
+<table>
+    <thead>
+        <tr>
+            {% for col_key, col_label in [
+                ("start_time", "Start time"),
+                ("sport", "Sport"),
+                ("downloaded_at", "Downloaded at"),
+            ] %}
+            {% set next_dir = "desc" if (sort == col_key and dir == "asc") else "asc" %}
+            <th>
+                <a href="/activities?sort={{ col_key }}&dir={{ next_dir }}&sport={{ current_sport }}&page_size={{ page_size }}">
+                    {{ col_label }}{% if sort == col_key %} {{ "▲" if dir == "asc" else "▼" }}{% endif %}
+                </a>
+            </th>
+            {% endfor %}
+            <th>File</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for activity in activities %}
+        <tr>
+            <td>{{ activity.start_time or "—" }}</td>
+            <td>{% if activity.sport %}<span class="pill">{{ activity.sport }}</span>{% else %}—{% endif %}</td>
+            <td>{{ activity.downloaded_at or "—" }}</td>
+            <td class="file-path">{{ activity.file_path }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No activities found.</p>
+{% endif %}
+
+<div class="pagination">
+    Page {{ page }} of {{ total_pages }}
+    {% if has_prev %}
+    <a href="/activities?page={{ page - 1 }}&page_size={{ page_size }}&sort={{ sort }}&dir={{ dir }}&sport={{ current_sport }}">&laquo; Previous</a>
+    {% endif %}
+    {% if has_next %}
+    <a href="/activities?page={{ page + 1 }}&page_size={{ page_size }}&sort={{ sort }}&dir={{ dir }}&sport={{ current_sport }}">Next &raquo;</a>
+    {% endif %}
+</div>
+</body>
+</html>

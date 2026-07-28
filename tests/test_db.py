@@ -9,7 +9,7 @@ from datetime import datetime, timezone, timedelta
 
 import pytest
 
-from polar_fit_sync.db import Db, OAUTH_STATE_TTL_SECONDS
+from polar_fit_sync.db import Db, OAUTH_STATE_TTL_SECONDS, LIST_SORT_COLUMNS
 
 
 @pytest.fixture
@@ -317,3 +317,161 @@ def test_last_run_returns_most_recent(db):
     last = db.last_run()
     assert last is not None
     assert last["id"] == id2
+
+
+# ---------------------------------------------------------------------------
+# Activities listing (list_downloaded / distinct_sports / count_downloaded filter)
+# ---------------------------------------------------------------------------
+
+
+def _touch_downloaded_at(db, exercise_id, iso_ts):
+    """Directly overwrite downloaded_at for a row so ordering is deterministic
+    (mirrors the created_at-rewind pattern used for oauth_state TTL tests)."""
+    conn = sqlite3.connect(db._path)
+    conn.execute(
+        "UPDATE downloaded_exercise SET downloaded_at = ? WHERE exercise_id = ?",
+        (iso_ts, exercise_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_list_sort_columns_allowlist():
+    assert set(LIST_SORT_COLUMNS.keys()) == {"start_time", "sport", "downloaded_at"}
+
+
+def test_list_downloaded_empty_db(db):
+    assert db.list_downloaded() == []
+
+
+def test_distinct_sports_empty_db(db):
+    assert db.distinct_sports() == []
+
+
+def test_count_downloaded_empty_db_with_sport_filter(db):
+    assert db.count_downloaded(sport="RUNNING") == 0
+
+
+def test_list_downloaded_row_keys(db):
+    db.record_downloaded("e1", "/p1.fit", "RUNNING", "2026-01-01T00:00:00Z")
+    rows = db.list_downloaded()
+    assert len(rows) == 1
+    assert set(rows[0].keys()) == {
+        "exercise_id",
+        "file_path",
+        "sport",
+        "start_time",
+        "downloaded_at",
+    }
+
+
+def test_list_downloaded_default_sort_is_start_time_desc(db):
+    db.record_downloaded("e1", "/p1.fit", "RUNNING", "2026-01-01T00:00:00Z")
+    db.record_downloaded("e2", "/p2.fit", "CYCLING", "2026-02-01T00:00:00Z")
+    db.record_downloaded("e3", "/p3.fit", "WALKING", "2026-01-15T00:00:00Z")
+    rows = db.list_downloaded()
+    assert [r["exercise_id"] for r in rows] == ["e2", "e3", "e1"]
+
+
+def test_list_downloaded_tiebreaker_stable_across_pages(db):
+    for i in range(1, 6):
+        db.record_downloaded(f"e{i}", f"/p{i}.fit", "RUNNING", "2026-01-01T00:00:00Z")
+    page1 = db.list_downloaded(limit=2, offset=0)
+    page2 = db.list_downloaded(limit=2, offset=2)
+    page3 = db.list_downloaded(limit=2, offset=4)
+    assert [r["exercise_id"] for r in page1] == ["e1", "e2"]
+    assert [r["exercise_id"] for r in page2] == ["e3", "e4"]
+    assert [r["exercise_id"] for r in page3] == ["e5"]
+
+
+def test_list_downloaded_pagination_offset_past_end(db):
+    for i in range(1, 4):
+        db.record_downloaded(f"e{i}", f"/p{i}.fit", "RUNNING", "2026-01-01T00:00:00Z")
+    assert db.list_downloaded(limit=2, offset=10) == []
+
+
+def test_list_downloaded_sort_by_sport_asc(db):
+    db.record_downloaded("e1", "/p1.fit", "RUNNING", "2026-01-01T00:00:00Z")
+    db.record_downloaded("e2", "/p2.fit", "CYCLING", "2026-01-02T00:00:00Z")
+    db.record_downloaded("e3", "/p3.fit", "WALKING", "2026-01-03T00:00:00Z")
+    rows = db.list_downloaded(sort="sport", direction="asc")
+    assert [r["sport"] for r in rows] == ["CYCLING", "RUNNING", "WALKING"]
+
+
+def test_list_downloaded_sort_by_sport_desc(db):
+    db.record_downloaded("e1", "/p1.fit", "RUNNING", "2026-01-01T00:00:00Z")
+    db.record_downloaded("e2", "/p2.fit", "CYCLING", "2026-01-02T00:00:00Z")
+    db.record_downloaded("e3", "/p3.fit", "WALKING", "2026-01-03T00:00:00Z")
+    rows = db.list_downloaded(sort="sport", direction="desc")
+    assert [r["sport"] for r in rows] == ["WALKING", "RUNNING", "CYCLING"]
+
+
+def test_list_downloaded_sort_by_downloaded_at(db):
+    db.record_downloaded("e1", "/p1.fit", "RUNNING", "2026-01-01T00:00:00Z")
+    db.record_downloaded("e2", "/p2.fit", "CYCLING", "2026-01-02T00:00:00Z")
+    db.record_downloaded("e3", "/p3.fit", "WALKING", "2026-01-03T00:00:00Z")
+    _touch_downloaded_at(db, "e1", "2026-03-01T00:00:00+00:00")
+    _touch_downloaded_at(db, "e2", "2026-03-02T00:00:00+00:00")
+    _touch_downloaded_at(db, "e3", "2026-03-03T00:00:00+00:00")
+    rows = db.list_downloaded(sort="downloaded_at", direction="asc")
+    assert [r["exercise_id"] for r in rows] == ["e1", "e2", "e3"]
+
+
+def test_list_downloaded_invalid_sort_raises(db):
+    with pytest.raises(ValueError):
+        db.list_downloaded(sort="not_a_real_column")
+
+
+def test_list_downloaded_invalid_direction_raises(db):
+    with pytest.raises(ValueError):
+        db.list_downloaded(direction="sideways")
+
+
+def test_list_downloaded_filter_by_sport(db):
+    db.record_downloaded("e1", "/p1.fit", "RUNNING", "2026-01-01T00:00:00Z")
+    db.record_downloaded("e2", "/p2.fit", "CYCLING", "2026-01-02T00:00:00Z")
+    db.record_downloaded("e3", "/p3.fit", "RUNNING", "2026-01-03T00:00:00Z")
+    rows = db.list_downloaded(sport="RUNNING")
+    assert {r["exercise_id"] for r in rows} == {"e1", "e3"}
+    assert all(r["sport"] == "RUNNING" for r in rows)
+
+
+def test_list_downloaded_filter_by_unknown_sport(db):
+    db.record_downloaded("e1", "/p1.fit", "RUNNING", "2026-01-01T00:00:00Z")
+    assert db.list_downloaded(sport="SWIMMING") == []
+
+
+def test_list_downloaded_filter_and_pagination_combined(db):
+    for i in range(1, 6):
+        db.record_downloaded(f"e{i}", f"/p{i}.fit", "RUNNING", "2026-01-01T00:00:00Z")
+    db.record_downloaded("x1", "/px1.fit", "CYCLING", "2026-01-01T00:00:00Z")
+    page1 = db.list_downloaded(sport="RUNNING", limit=2, offset=0)
+    page2 = db.list_downloaded(sport="RUNNING", limit=2, offset=2)
+    page3 = db.list_downloaded(sport="RUNNING", limit=2, offset=4)
+    assert [r["exercise_id"] for r in page1] == ["e1", "e2"]
+    assert [r["exercise_id"] for r in page2] == ["e3", "e4"]
+    assert [r["exercise_id"] for r in page3] == ["e5"]
+
+
+def test_count_downloaded_with_sport_filter(db):
+    db.record_downloaded("e1", "/p1.fit", "RUNNING", "2026-01-01T00:00:00Z")
+    db.record_downloaded("e2", "/p2.fit", "CYCLING", "2026-01-02T00:00:00Z")
+    db.record_downloaded("e3", "/p3.fit", "RUNNING", "2026-01-03T00:00:00Z")
+    assert db.count_downloaded() == 3
+    assert db.count_downloaded(sport="RUNNING") == 2
+    assert db.count_downloaded(sport="CYCLING") == 1
+    assert db.count_downloaded(sport="SWIMMING") == 0
+
+
+def test_count_downloaded_no_arg_backward_compatible(db):
+    assert db.count_downloaded() == 0
+    db.record_downloaded("e1", "/p1.fit", "RUNNING", "2026-01-01T00:00:00Z")
+    assert db.count_downloaded() == 1
+
+
+def test_distinct_sports_excludes_null_dedups_and_sorts(db):
+    db.record_downloaded("e1", "/p1.fit", "RUNNING", "2026-01-01T00:00:00Z")
+    db.record_downloaded("e2", "/p2.fit", "CYCLING", "2026-01-02T00:00:00Z")
+    db.record_downloaded("e3", "/p3.fit", "RUNNING", "2026-01-03T00:00:00Z")
+    db.record_downloaded("e4", "/p4.fit", None, "2026-01-04T00:00:00Z")
+    assert db.distinct_sports() == ["CYCLING", "RUNNING"]
