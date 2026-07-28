@@ -1,6 +1,6 @@
 [project]
 name = "dreeve-polar-connector"
-version = "0.5.2"
+version = "0.6.0"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.111",
