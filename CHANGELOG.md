@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/YentlFrickx/dreeve-polar-connector/compare/v0.5.2...v0.6.0) (2026-07-28)
+
+
+### Features
+
+* add synced activities list view (pagination, sort, filter) ([78af73e](https://github.com/YentlFrickx/dreeve-polar-connector/commit/78af73e2d81078a5f46412c50e251c267b316933))
+* add synced activities list view with pagination, sort, and filter ([b85e9ad](https://github.com/YentlFrickx/dreeve-polar-connector/commit/b85e9ad8ddc8e16fb9aa83861b272e8ccb749e45))
+
 ## [0.5.2](https://github.com/YentlFrickx/dreeve-polar-connector/compare/v0.5.1...v0.5.2) (2026-07-28)
 
 
