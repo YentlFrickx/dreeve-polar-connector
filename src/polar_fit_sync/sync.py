@@ -357,7 +357,10 @@ async def run_sync(
                 # Re-raise so the outer handler can flag the token.
                 raise
             except Exception:
-                logger.exception("Failed to download exercise %s.", ex.id)
+                logger.exception(
+                    "Failed to download exercise %s (start_time=%s, sport=%s).",
+                    ex.id, ex.start_time, ex.sport,
+                )
                 errors += 1
 
         if sport_filter:
