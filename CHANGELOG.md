@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/YentlFrickx/dreeve-polar-connector/compare/v0.6.0...v0.6.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* log exercise start_time and sport on download failure ([c91e190](https://github.com/YentlFrickx/dreeve-polar-connector/commit/c91e190f085bb13d92fcebf650039593f6335686))
+* log exercise start_time and sport on download failure ([0928f67](https://github.com/YentlFrickx/dreeve-polar-connector/commit/0928f67f34c1ae2a29a7c853cf73574dd386624a))
+
 ## [0.6.0](https://github.com/YentlFrickx/dreeve-polar-connector/compare/v0.5.2...v0.6.0) (2026-07-28)
 
 
